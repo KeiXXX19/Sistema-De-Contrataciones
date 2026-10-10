@@ -1,0 +1,26 @@
+{
+  "name": "sistema-contrataciones",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma de Intermediación con Escrow - Arquitectura Hexagonal y Microservicios",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=@platform/web run dev",
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "amqplib": "^2.0.1"
+  }
+}

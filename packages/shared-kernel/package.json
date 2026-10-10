@@ -1,0 +1,22 @@
+{
+  "name": "@platform/shared-kernel",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./rabbitmq": {
+      "types": "./dist/rabbitmq-broker.d.ts",
+      "import": "./dist/rabbitmq-broker.js",
+      "default": "./dist/rabbitmq-broker.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  }
+}
