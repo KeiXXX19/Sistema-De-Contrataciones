@@ -52,7 +52,7 @@ docker compose up -d  # RabbitMQ (5672, panel 15672 guest/guest) + PostgreSQL (5
 - **Tests duplicados**: hay `.js` y `.d.ts` compilados dentro de `src/` y `tests/` mezclados con el fuente. Vitest ejecuta `.ts` y `.js`: los "51 tests" incluyen duplicados contados dos veces (user-service y job-feed-service ya están limpios; bidding, job, escrow, review y event-choreography aún no).
 - **Artefactos `.js` obsoletos ensombrecen el fuente**: si existe `src/index.js` junto a `src/index.ts`, la importación `../src/index.js` resuelve al `.js` viejo y los tests fallan con errores como "X is not a constructor" tras editar el `.ts`. Síntoma claro: el código nuevo "no existe" para la suite. Limpiar los `.js`/`.d.ts` de `src/` y `tests/` del servicio afectado (preguntar antes, ver Forma de trabajar).
 - **user-service se consume desde `dist/`**: su `package.json` apunta a `dist/index.js`, así que tras editar `src/index.ts` hay que recompilar (`npx tsc -p tsconfig.json` dentro del servicio) o Vite seguirá sirviendo la versión vieja al frontend.
-- **Git mal inicializado**: la raíz del repositorio detectada es `C:\Users\hkein` (home del usuario), no esta carpeta. Sin commits ni `.gitignore`.
+- **Git inicializado**: repositorio Git propio en la raíz del proyecto con `.gitignore` que excluye `node_modules`, `dist` y temporales. Primer commit de progreso registrado (`feat: plataforma de contrataciones con catalogo colombiano, auth, roles y custodia escrow`).
 - Estados definidos sin flujo completo: `DRAFT`, `IN_DISPUTE`, `DISPUTED`, `SPLIT_SETTLED`, `CANCELLED`, `PAYMENT_FAILED`.
 - El frontend solo soporta un trabajo activo a la vez (toma el último job de la lista).
 - `README.md` documenta 5 servicios; el sexto (`job-feed-service`) no aparece.
