@@ -15,6 +15,9 @@ import {
   CheckCircle2,
   X,
   Coins,
+  Eye,
+  Users,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   QueryJobFeedUseCase,
@@ -25,6 +28,8 @@ import {
 } from '@platform/job-feed-service';
 import { CreateJobUseCase } from '@platform/job-service';
 import { SessionUser } from './LoginScreen';
+import { JobPublishModal } from './JobPublishModal';
+import { JobDetailModal } from './JobDetailModal';
 
 interface JobCatalogViewProps {
   queryFeedUseCase: QueryJobFeedUseCase;
@@ -33,24 +38,37 @@ interface JobCatalogViewProps {
   authUser: SessionUser | null;
   onSelectTrustPayJob?: (jobId: string) => void;
   onGoToClientPublish?: () => void;
+  initialSearch?: string;
+  initialLocation?: string;
+  initialCategory?: string;
+  onBackToHome?: () => void;
+  onRequireAuth?: () => void;
 }
 
 const CIUDADES_COLOMBIA = [
   'Todas las ubicaciones',
-  'Remoto (Colombia)',
   'Bogotá D.C.',
   'Medellín, Antioquia',
   'Cali, Valle del Cauca',
   'Barranquilla, Atlántico',
   'Bucaramanga, Santander',
+  'Cartagena, Bolívar',
+  'Pereira, Risaralda',
+  'Remoto (Colombia)',
 ];
 
 const CATEGORIAS = [
   'Todas las áreas',
+  'Construcción y Obras Civiles',
+  'Electricidad y Redes Técnicas',
+  'Soldadura y Metalmecánica',
+  'Plomería e Hidrosanitarios',
   'Tecnología y Software',
   'Diseño y Multimedia',
   'Marketing y Ventas',
   'Administración y Finanzas',
+  'Logística y Transporte',
+  'Materiales y Suministros',
   'Atención al Cliente y Call Center',
 ];
 
@@ -82,27 +100,43 @@ export function JobCatalogView({
   createJobUseCase,
   authUser,
   onSelectTrustPayJob,
+  initialSearch = '',
+  initialLocation = '',
+  initialCategory = '',
+  onBackToHome,
+  onRequireAuth,
 }: JobCatalogViewProps) {
   const [items, setItems] = useState<FeedItemResponseDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const [avisoRol, setAvisoRol] = useState<string | null>(null);
 
   // Filtros
-  const [busqueda, setBusqueda] = useState('');
-  const [ciudadSel, setCiudadSel] = useState('Todas las ubicaciones');
-  const [categoriaSel, setCategoriaSel] = useState('Todas las áreas');
+  const [busqueda, setBusqueda] = useState(initialSearch);
+  const [ciudadSel, setCiudadSel] = useState(
+    initialLocation && CIUDADES_COLOMBIA.includes(initialLocation) ? initialLocation : 'Todas las ubicaciones'
+  );
+  const [categoriaSel, setCategoriaSel] = useState(
+    initialCategory && CATEGORIAS.includes(initialCategory) ? initialCategory : 'Todas las áreas'
+  );
   const [modalidadSel, setModalidadSel] = useState<JobModalidad | 'TODAS'>('TODAS');
   const [fuenteSel, setFuenteSel] = useState<JobSource | 'TODAS'>('TODAS');
 
+  // Sincronizar filtros cuando cambian desde la portada (al hacer clic en los botones de sectores)
+  useEffect(() => {
+    if (initialCategory) {
+      setCategoriaSel(initialCategory);
+    }
+    if (initialSearch !== undefined) {
+      setBusqueda(initialSearch);
+    }
+    if (initialLocation && CIUDADES_COLOMBIA.includes(initialLocation)) {
+      setCiudadSel(initialLocation);
+    }
+  }, [initialCategory, initialSearch, initialLocation]);
+
   // Modal para publicar nuevo trabajo en TrustPay
   const [modalPublicar, setModalPublicar] = useState(false);
-  const [nuevoTitulo, setNuevoTitulo] = useState('');
-  const [nuevaCat, setNuevaCat] = useState('Tecnología y Software');
-  const [nuevaMod, setNuevaMod] = useState<JobModalidad>('REMOTO');
-  const [nuevaCiudad, setNuevaCiudad] = useState('Bogotá D.C.');
-  const [nuevoPresupuesto, setNuevoPresupuesto] = useState(3500000);
-  const [nuevaMoneda, setNuevaMoneda] = useState<'COP' | 'USD'>('COP');
-  const [nuevaDesc, setNuevaDesc] = useState('');
-  const [publicando, setPublicando] = useState(false);
+  const [selectedJobForDetail, setSelectedJobForDetail] = useState<FeedItemResponseDTO | null>(null);
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
 
   const cargarTrabajos = async () => {
@@ -128,37 +162,6 @@ export function JobCatalogView({
     cargarTrabajos();
   }, [busqueda, ciudadSel, categoriaSel, modalidadSel, fuenteSel]);
 
-  const handleCrearTrabajo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!authUser || (authUser.role !== 'CLIENT' && authUser.role !== 'USER')) {
-      alert('Debes iniciar sesión para publicar un trabajo o servicio en TrustPay.');
-      return;
-    }
-
-    setPublicando(true);
-    setMensajeExito(null);
-    try {
-      // El presupuesto en Money se guarda en centavos (ej: 3,500,000 COP -> 350,000,000 centavos)
-      await createJobUseCase.execute({
-        title: nuevoTitulo,
-        description: `${nuevaDesc}\n\nUbicación: ${nuevaCiudad} | Modalidad: ${nuevaMod}`,
-        category: nuevaCat,
-        clientId: authUser.id,
-        budget: nuevoPresupuesto,
-      });
-
-      setMensajeExito('¡Trabajo publicado con éxito! Ya está disponible en el catálogo y protegido por TrustPay Escrow.');
-      setNuevoTitulo('');
-      setNuevaDesc('');
-      setModalPublicar(false);
-      await cargarTrabajos();
-    } catch (err: any) {
-      alert(err.message || 'Error al publicar el trabajo');
-    } finally {
-      setPublicando(false);
-    }
-  };
-
   const getBadgeFuente = (source: JobSource) => {
     switch (source) {
       case 'TRUSTPAY':
@@ -180,16 +183,32 @@ export function JobCatalogView({
     <div className="catalog-wrapper">
       {/* Banner Hero */}
       <div className="catalog-hero glass-card">
+        {onBackToHome && (
+          <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: '0.82rem', padding: '0.45rem 1rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              onClick={onBackToHome}
+            >
+              ← Volver al Inicio
+            </button>
+            {categoriaSel !== 'Todas las áreas' && (
+              <span className="categoria-activa-pill">
+                Sector seleccionado: <strong>{categoriaSel}</strong>
+              </span>
+            )}
+          </div>
+        )}
         <div className="catalog-hero-content">
           <div className="hero-badge">
-            <Sparkles size={14} color="#67e8f9" />
-            <span>Mercado Laboral & Servicios Colombia</span>
+            <ShieldCheck size={14} color="var(--sky-600)" />
+            <span>Marketplace de Servicios & Contrataciones con Escrow</span>
           </div>
           <h1 className="catalog-title">
-            Encuentra Oportunidades y Servicios con <span className="highlight-text">Pagos Protegidos</span>
+            Requerimientos y Proyectos con <span className="highlight-text">Pagos en Custodia</span>
           </h1>
           <p className="catalog-subtitle">
-            Explora las mejores ofertas laborales de Colombia sincronizadas con <strong>Computrabajo</strong>, <strong>elempleo</strong> y contrata servicios independientes con la seguridad de custodia en <strong>TrustPay Escrow</strong>.
+            Publica requerimientos de servicios o postula tus cotizaciones con el respaldo de la bóveda neutral de <strong>TrustPay Escrow</strong>. Garantía de pago para contratistas y aprobación previa para clientes.
           </p>
         </div>
 
@@ -199,7 +218,7 @@ export function JobCatalogView({
             <Search size={18} color="var(--text-muted)" />
             <input
               type="text"
-              placeholder="Buscar por cargo, habilidad (ej. React, Contabilidad, Siigo) o empresa..."
+              placeholder="Buscar servicio, oficio o especialidad (ej. Obra civil, Desarrollo Web, Electricista CONTE, DIAN)..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               className="search-input"
@@ -269,21 +288,38 @@ export function JobCatalogView({
               style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' }}
               onClick={() => {
                 if (!authUser) {
-                  alert('Inicia sesión para publicar un servicio o vacante.');
+                  if (onRequireAuth) {
+                    onRequireAuth();
+                  } else {
+                    setAvisoRol('Inicia sesión para publicar un servicio o vacante.');
+                  }
                   return;
                 }
                 if (authUser.role !== 'CLIENT' && authUser.role !== 'USER') {
-                  alert('Inicia sesión como cliente o usuario para publicar trabajos en TrustPay.');
+                  setAvisoRol('Tu rol actual es Prestador. Como usuario polivalente puedes publicar cambiando a modo Cliente en la barra superior.');
                   return;
                 }
                 setModalPublicar(true);
               }}
             >
-              <PlusCircle size={16} /> Publicar Trabajo o Servicio
+              <PlusCircle size={16} /> Publicar Requerimiento de Servicio
             </button>
           </div>
         </div>
       </div>
+
+      {avisoRol && (
+        <div className="alert-warning-banner" style={{ margin: '1rem 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.85rem 1.25rem', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '12px', color: '#92400e', fontSize: '0.88rem' }}>
+          <span>{avisoRol}</span>
+          <button
+            type="button"
+            onClick={() => setAvisoRol(null)}
+            style={{ background: 'transparent', border: 'none', color: '#92400e', cursor: 'pointer', fontWeight: 800 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {mensajeExito && (
         <div className="alert-success-banner">
@@ -295,40 +331,121 @@ export function JobCatalogView({
       {/* Grid de Trabajos */}
       <div className="catalog-results-header">
         <h2>
-          Catálogo de Ofertas Disponibles <span className="results-count">({items.length} vacantes)</span>
+          Catálogo de Requerimientos y Servicios Activos <span className="results-count">({items.length} disponibles)</span>
         </h2>
-        <span className="results-badge">Mercado Laboral Colombiano</span>
+        <span className="results-badge">Contratación con Pagos en Escrow</span>
       </div>
 
       {loading ? (
         <div className="catalog-loading">
           <div className="spinner"></div>
-          <p>Consultando catálogo de oportunidades laborales en Colombia...</p>
+          <p>Consultando requerimientos y servicios en Colombia...</p>
         </div>
       ) : items.length === 0 ? (
-        <div className="empty-catalog glass-card">
-          <Briefcase size={40} color="var(--text-dim)" />
-          <h3>No se encontraron vacantes con los filtros seleccionados</h3>
-          <p>Prueba ampliando la búsqueda o seleccionando otra ciudad colombiana.</p>
-          <button
-            className="btn btn-secondary"
-            onClick={() => {
-              setBusqueda('');
-              setCiudadSel('Todas las ubicaciones');
-              setCategoriaSel('Todas las áreas');
-              setModalidadSel('TODAS');
-              setFuenteSel('TODAS');
-            }}
-          >
-            Restablecer Filtros
-          </button>
+        <div className="empty-catalog-container">
+          <div className="empty-catalog glass-card">
+            <div className="empty-catalog-icon-wrap">
+              <Briefcase size={38} color="#0284c7" />
+            </div>
+            <h3>Catálogo de Ofertas de Trabajo</h3>
+            <div className="empty-catalog-sector-tag">
+              Sector: <strong>{categoriaSel !== 'Todas las áreas' ? categoriaSel : 'Todas las áreas'}</strong>
+            </div>
+            <p className="empty-catalog-desc">
+              Este espacio está listo para listar las publicaciones y ofertas de trabajo verificadas. Actualmente se mantiene vacío para definir la estructura y diseño final de las ofertas.
+            </p>
+            <div className="empty-catalog-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (!authUser) {
+                    if (onRequireAuth) {
+                      onRequireAuth();
+                    } else {
+                      setAvisoRol('Inicia sesión para publicar un servicio o vacante.');
+                    }
+                    return;
+                  }
+                  if (authUser.role !== 'CLIENT' && authUser.role !== 'USER') {
+                    setAvisoRol('Tu rol actual es Prestador. Como usuario polivalente puedes publicar cambiando a modo Cliente en la barra superior.');
+                    return;
+                  }
+                  setModalPublicar(true);
+                }}
+              >
+                <PlusCircle size={16} /> Publicar Nuevo Requerimiento
+              </button>
+              {categoriaSel !== 'Todas las áreas' && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setCategoriaSel('Todas las áreas')}
+                >
+                  Ver Todas las Áreas
+                </button>
+              )}
+              {onBackToHome && (
+                <button className="btn btn-secondary" onClick={onBackToHome}>
+                  Volver al Inicio
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Boceto estructural de muestra para visualizar cómo se verán las ofertas publicadas */}
+          <div className="catalog-preview-mockup-section">
+            <div className="preview-mockup-title">
+              <Sparkles size={16} color="#0284c7" />
+              <span>Boceto de cómo se verán las ofertas cuando se publiquen:</span>
+            </div>
+            <div className="job-card-mockup">
+              <div className="mockup-header">
+                <div>
+                  <span className="mockup-badge-sector">{categoriaSel !== 'Todas las áreas' ? categoriaSel : 'Construcción / Tecnología / Servicios'}</span>
+                  <h4 className="mockup-job-title">[Título del Requerimiento o Servicio Solicitado]</h4>
+                  <span className="mockup-client-name">Empresa o Cliente Verificado · Bogotá / Remoto</span>
+                </div>
+                <div className="mockup-badge-escrow">
+                  <ShieldCheck size={14} /> Custodia Escrow Activa
+                </div>
+              </div>
+              <p className="mockup-desc">
+                Descripción detallada del requerimiento, entregables esperados, requerimientos técnicos y condiciones de pago en custodia neutral...
+              </p>
+              <div className="mockup-footer">
+                <div className="mockup-price">
+                  <span className="mockup-price-label">Presupuesto Protegido</span>
+                  <span className="mockup-price-value">$3,500,000 COP</span>
+                </div>
+                <div className="mockup-btn-placeholder">
+                  Enviar Propuesta / Cotizar
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="catalog-grid">
           {items.map((job) => {
             const fuenteInfo = getBadgeFuente(job.source);
+            const images = (job.attachments || []).filter((a) => a.type.startsWith('image/'));
+
             return (
               <div key={job.id} className="job-card glass-card">
+                {images.length > 0 && (
+                  <div
+                    className="job-card-image-preview"
+                    onClick={() => setSelectedJobForDetail(job)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <img src={images[0].url} alt={job.title} className="card-top-thumbnail" />
+                    {images.length > 1 && (
+                      <span className="card-image-count-tag">
+                        <ImageIcon size={12} /> {images.length} fotos
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div className="job-card-header">
                   <div className="job-header-top">
                     <span
@@ -346,9 +463,28 @@ export function JobCatalogView({
                     <span className="modality-badge">
                       {job.modalidad}
                     </span>
+
+                    {job.budgetType && (
+                      <span className="budget-type-chip">
+                        {job.budgetType === 'DAILY'
+                          ? 'Tarifa Diaria'
+                          : job.budgetType === 'HOURLY'
+                          ? 'Tarifa por Hora'
+                          : job.budgetType === 'NEGOTIABLE'
+                          ? 'Negociable'
+                          : 'Precio Fijo'}
+                      </span>
+                    )}
                   </div>
 
-                  <h3 className="job-card-title">{job.title}</h3>
+                  <h3
+                    className="job-card-title"
+                    onClick={() => setSelectedJobForDetail(job)}
+                    style={{ cursor: 'pointer' }}
+                    title="Ver ficha completa y requisitos"
+                  >
+                    {job.title}
+                  </h3>
 
                   <div className="job-company-row">
                     <Building2 size={14} color="var(--text-muted)" />
@@ -360,6 +496,27 @@ export function JobCatalogView({
                 </div>
 
                 <p className="job-card-description">{job.description}</p>
+
+                {/* Requisitos clave destacados en la tarjeta */}
+                {(job.requirements || (job.attachments && job.attachments.length > 0)) && (
+                  <div className="card-requirements-row">
+                    {job.requirements?.workerCount && (
+                      <span className="req-mini-pill">
+                        <Users size={12} /> {job.requirements.workerCount} vacante{job.requirements.workerCount > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {job.requirements?.materialsIncludedBy && (
+                      <span className="req-mini-pill">
+                        {job.requirements.materialsIncludedBy === 'CLIENT' ? 'Materiales Cliente' : 'A todo costo'}
+                      </span>
+                    )}
+                    {job.attachments && job.attachments.length > 0 && (
+                      <span className="req-mini-pill attachments-pill">
+                        📎 {job.attachments.length} adjunto{job.attachments.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {job.tags && job.tags.length > 0 && (
                   <div className="job-tags-container">
@@ -373,11 +530,20 @@ export function JobCatalogView({
                   <div className="job-salary-block">
                     <span className="salary-label">Rango Salarial / Presupuesto</span>
                     <span className="salary-amount">
-                      {formatearDinero(job.budgetMin, job.currency)} - {formatearDinero(job.budgetMax, job.currency)}
+                      {formatearDinero(job.budgetMin, job.currency)}
+                      {job.budgetMax > job.budgetMin && ` - ${formatearDinero(job.budgetMax, job.currency)}`}
                     </span>
                   </div>
 
                   <div className="job-action-block">
+                    <button
+                      className="btn btn-secondary"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem' }}
+                      onClick={() => setSelectedJobForDetail(job)}
+                    >
+                      <Eye size={14} /> Ficha Completa
+                    </button>
+
                     {job.source === 'TRUSTPAY' ? (
                       <button
                         className="btn btn-success"
@@ -409,129 +575,21 @@ export function JobCatalogView({
       )}
 
       {/* Modal para Publicar Trabajo en TrustPay */}
-      {modalPublicar && (
-        <div className="modal-overlay">
-          <div className="modal-card" style={{ maxWidth: '600px' }}>
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <ShieldCheck size={24} color="#10b981" />
-                <h3 style={{ margin: 0 }}>Publicar Oferta o Servicio en TrustPay</h3>
-              </div>
-              <button
-                className="btn-icon"
-                onClick={() => setModalPublicar(false)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
+      <JobPublishModal
+        isOpen={modalPublicar}
+        onClose={() => setModalPublicar(false)}
+        createJobUseCase={createJobUseCase}
+        authUser={authUser}
+        onJobPublished={cargarTrabajos}
+      />
 
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.4rem' }}>
-              Tu publicación aparecerá en el catálogo general de Colombia y el presupuesto estará protegido por el sistema de pagos en custodia (Escrow).
-            </p>
-
-            <form onSubmit={handleCrearTrabajo} style={{ marginTop: '1rem' }}>
-              <div className="form-group">
-                <label className="form-label">Título del Trabajo / Servicio</label>
-                <input
-                  className="form-control"
-                  placeholder="Ej: Desarrollo de App Móvil Flutter con Pasarela de Pago"
-                  value={nuevoTitulo}
-                  onChange={(e) => setNuevoTitulo(e.target.value)}
-                  required
-                  minLength={5}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Área de Trabajo</label>
-                  <select
-                    className="form-control"
-                    value={nuevaCat}
-                    onChange={(e) => setNuevaCat(e.target.value)}
-                  >
-                    {CATEGORIAS.filter((c) => c !== 'Todas las áreas').map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Modalidad</label>
-                  <select
-                    className="form-control"
-                    value={nuevaMod}
-                    onChange={(e) => setNuevaMod(e.target.value as JobModalidad)}
-                  >
-                    <option value="REMOTO">Remoto</option>
-                    <option value="HIBRIDO">Híbrido</option>
-                    <option value="PRESENCIAL">Presencial</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Ciudad / Ubicación en Colombia</label>
-                  <select
-                    className="form-control"
-                    value={nuevaCiudad}
-                    onChange={(e) => setNuevaCiudad(e.target.value)}
-                  >
-                    {CIUDADES_COLOMBIA.filter((c) => c !== 'Todas las ubicaciones').map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Presupuesto ({nuevaMoneda})</label>
-                  <input
-                    type="number"
-                    className="form-control"
-                    value={nuevoPresupuesto}
-                    onChange={(e) => setNuevoPresupuesto(Number(e.target.value))}
-                    min={50000}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Descripción de los Requisitos y Alcance</label>
-                <textarea
-                  className="form-control"
-                  rows={4}
-                  placeholder="Detalla lo que necesitas, tecnologías requeridas, fechas estimadas..."
-                  value={nuevaDesc}
-                  onChange={(e) => setNuevaDesc(e.target.value)}
-                  required
-                  minLength={20}
-                />
-              </div>
-
-              <div className="modal-actions" style={{ marginTop: '1.25rem' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setModalPublicar(false)}
-                  disabled={publicando}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={publicando}
-                >
-                  {publicando ? 'Publicando en Catálogo...' : 'Publicar con Custodia TrustPay'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Modal para Ver Detalle Completo del Trabajo */}
+      <JobDetailModal
+        job={selectedJobForDetail}
+        onClose={() => setSelectedJobForDetail(null)}
+        onApplyEscrow={onSelectTrustPayJob}
+        isProviderActor={authUser?.role === 'PROVIDER' || authUser?.role === 'USER'}
+      />
     </div>
   );
 }

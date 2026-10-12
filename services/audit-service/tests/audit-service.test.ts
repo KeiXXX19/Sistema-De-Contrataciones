@@ -42,8 +42,10 @@ describe('Audit Service - Read Model de Auditoría', () => {
   });
 
   it('debe proyectar eventos del broker como entradas de auditoría', async () => {
+    const t0 = new Date(Date.now() - 1000);
+    const t1 = new Date(Date.now());
     await broker.publish(
-      eventoPrueba('user.registered', 'user-1', { userId: 'user-1', email: 'ana@ejemplo.com', role: 'CLIENT' })
+      eventoPrueba('user.registered', 'user-1', { userId: 'user-1', email: 'ana@ejemplo.com', role: 'CLIENT' }, t0)
     );
     await broker.publish(
       eventoPrueba('escrow.deposited', 'escrow-1', {
@@ -51,7 +53,7 @@ describe('Audit Service - Read Model de Auditoría', () => {
         jobId: 'job-1',
         clientId: 'user-1',
         amountHeld: 515,
-      })
+      }, t1)
     );
 
     const log = await queryUseCase.execute();

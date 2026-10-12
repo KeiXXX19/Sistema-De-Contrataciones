@@ -6,6 +6,27 @@ import { AggregateRoot, DomainEvent, UniqueEntityID, IEventBroker } from '@platf
 export type JobModalidad = 'REMOTO' | 'PRESENCIAL' | 'HIBRIDO';
 export type JobSource = 'TRUSTPAY' | 'COMPUTRABAJO' | 'ELEMPLEO' | 'MAGNETO' | 'LINKEDIN';
 
+export type BudgetType = 'FIXED' | 'HOURLY' | 'DAILY' | 'NEGOTIABLE';
+
+export interface JobAttachmentInfo {
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+}
+
+export interface JobRequirementsInfo {
+  workerCount?: number;
+  experienceLevel?: string;
+  toolsRequired?: string[];
+  materialsIncludedBy?: 'CLIENT' | 'PROVIDER' | 'NOT_APPLICABLE';
+  certificationsRequired?: string[];
+  scopeType?: 'LABOR_ONLY' | 'ALL_INCLUSIVE';
+  proposalsDeadline?: string;
+  startDate?: string;
+  deliveryDuration?: string;
+}
+
 export interface JobFeedItemProps {
   jobId: string;
   title: string;
@@ -24,6 +45,12 @@ export interface JobFeedItemProps {
   source?: JobSource;
   companyName?: string;
   sourceUrl?: string;
+  budgetType?: BudgetType;
+  estimatedDuration?: string;
+  address?: string;
+  attachments?: JobAttachmentInfo[];
+  requirements?: JobRequirementsInfo;
+  categoryDetails?: Record<string, any>;
 }
 
 // Evento que emite el Feed Service al recibir una nueva publicación vía bus
@@ -101,6 +128,12 @@ export class JobFeedItem extends AggregateRoot<JobFeedItemProps> {
   get source(): JobSource { return this.props.source ?? 'TRUSTPAY'; }
   get companyName(): string { return this.props.companyName ?? this.props.clientName; }
   get sourceUrl(): string | undefined { return this.props.sourceUrl; }
+  get budgetType(): BudgetType | undefined { return this.props.budgetType; }
+  get estimatedDuration(): string | undefined { return this.props.estimatedDuration; }
+  get address(): string | undefined { return this.props.address; }
+  get attachments(): JobAttachmentInfo[] { return this.props.attachments ?? []; }
+  get requirements(): JobRequirementsInfo | undefined { return this.props.requirements; }
+  get categoryDetails(): Record<string, any> | undefined { return this.props.categoryDetails; }
 
   markClosed(): void {
     this.props.isOpen = false;
@@ -150,6 +183,12 @@ export interface CreateFeedItemDTO {
   source?: JobSource;
   companyName?: string;
   sourceUrl?: string;
+  budgetType?: BudgetType;
+  estimatedDuration?: string;
+  address?: string;
+  attachments?: JobAttachmentInfo[];
+  requirements?: JobRequirementsInfo;
+  categoryDetails?: Record<string, any>;
 }
 
 export interface FeedItemResponseDTO {
@@ -171,6 +210,12 @@ export interface FeedItemResponseDTO {
   source: JobSource;
   companyName: string;
   sourceUrl?: string;
+  budgetType?: BudgetType;
+  estimatedDuration?: string;
+  address?: string;
+  attachments?: JobAttachmentInfo[];
+  requirements?: JobRequirementsInfo;
+  categoryDetails?: Record<string, any>;
 }
 
 // ==========================================
@@ -204,6 +249,12 @@ export class PublishToFeedUseCase {
       source: dto.source ?? 'TRUSTPAY',
       companyName: dto.companyName ?? dto.clientName,
       sourceUrl: dto.sourceUrl,
+      budgetType: dto.budgetType ?? 'FIXED',
+      estimatedDuration: dto.estimatedDuration,
+      address: dto.address,
+      attachments: dto.attachments ?? [],
+      requirements: dto.requirements,
+      categoryDetails: dto.categoryDetails,
     });
 
     await this.feedRepo.save(item);
@@ -233,6 +284,12 @@ export class PublishToFeedUseCase {
       source: item.source,
       companyName: item.companyName,
       sourceUrl: item.sourceUrl,
+      budgetType: item.budgetType,
+      estimatedDuration: item.estimatedDuration,
+      address: item.address,
+      attachments: item.attachments,
+      requirements: item.requirements,
+      categoryDetails: item.categoryDetails,
     };
   }
 }
@@ -261,6 +318,12 @@ export class QueryJobFeedUseCase {
       source: item.source,
       companyName: item.companyName,
       sourceUrl: item.sourceUrl,
+      budgetType: item.budgetType,
+      estimatedDuration: item.estimatedDuration,
+      address: item.address,
+      attachments: item.attachments,
+      requirements: item.requirements,
+      categoryDetails: item.categoryDetails,
     }));
   }
 }
@@ -296,13 +359,19 @@ export class JobFeedProjector {
           modalidad: p.modalidad || 'REMOTO',
           clientId: p.clientId,
           clientName: p.clientName || 'Cliente TrustPay',
-          companyName: p.clientName || 'Cliente TrustPay',
+          companyName: p.companyName || p.clientName || 'Cliente TrustPay',
           budgetMin: p.budget || 500,
           budgetMax: p.budget || 500,
-          currency: p.currency || 'USD',
-          tags: ['Escrow Protegido', 'TrustPay'],
+          currency: p.currency || 'COP',
+          tags: p.tags || ['Escrow Protegido', 'TrustPay', p.category || 'General'],
           location: p.location || 'Remoto (Colombia)',
           source: 'TRUSTPAY',
+          budgetType: p.budgetType || 'FIXED',
+          estimatedDuration: p.estimatedDuration,
+          address: p.address,
+          attachments: p.attachments,
+          requirements: p.requirements,
+          categoryDetails: p.categoryDetails,
         });
       } catch {
         // Idempotencia si el feed ya lo proyectó

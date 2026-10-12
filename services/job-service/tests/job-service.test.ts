@@ -118,4 +118,64 @@ describe('Job Service - Hexagonal Unit Tests & State Machine', () => {
     const approvedEvent = eventBroker.publishedEvents.find((e) => e.eventName === 'job.approved');
     expect(approvedEvent).toBeDefined();
   });
+
+  it('debe permitir publicar requerimientos profesionales con tarifas por jornada, adjuntos y requisitos', async () => {
+    const job = await createJobUseCase.execute({
+      title: 'Adecuación de Redes Eléctricas e Iluminación LED',
+      description: 'Instalación de acometida trifásica y canaletas industriales en bodega.',
+      category: 'Electricidad y Redes Técnicas',
+      clientId: 'client-bogota',
+      budgetAmount: 1800000,
+      budgetType: 'DAILY',
+      currency: 'COP',
+      estimatedDuration: '4 jornadas (días)',
+      modalidad: 'PRESENCIAL',
+      location: 'Bogotá D.C. — Zona Industrial',
+      address: 'Calle 13 # 68-20 Bodega 4',
+      attachments: [
+        {
+          name: 'plano_electrico.pdf',
+          type: 'application/pdf',
+          size: 1048576,
+          url: 'data:application/pdf;base64,JVBERi0xLjQK...',
+        },
+        {
+          name: 'tablero_actual.jpg',
+          type: 'image/jpeg',
+          size: 524288,
+          url: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...',
+        },
+      ],
+      requirements: {
+        workerCount: 2,
+        experienceLevel: 'Técnico electricista certificado CONTE',
+        toolsRequired: ['Multímetro calibrado', 'Ponchadora hidráulica', 'Escalera dieléctrica'],
+        materialsIncludedBy: 'CLIENT',
+        certificationsRequired: ['Certificación CONTE Clase TE-1', 'Curso de Alturas Avanzado'],
+        scopeType: 'LABOR_ONLY',
+        proposalsDeadline: '2026-10-25',
+      },
+      categoryDetails: {
+        nivelRiesgoARL: 'Riesgo V',
+        voltajeOperacion: '220V / 440V',
+        visitaPrevia: true,
+      },
+    });
+
+    expect(job.budgetType).toBe('DAILY');
+    expect(job.currency).toBe('COP');
+    expect(job.attachments?.length).toBe(2);
+    expect(job.requirements?.workerCount).toBe(2);
+    expect(job.requirements?.materialsIncludedBy).toBe('CLIENT');
+    expect(job.requirements?.toolsRequired).toContain('Multímetro calibrado');
+    expect(job.categoryDetails?.nivelRiesgoARL).toBe('Riesgo V');
+
+    // Verificar que el evento de dominio contenga la metadata completa
+    const createdEvent = eventBroker.publishedEvents.find((e) => e.eventName === 'job.created');
+    expect(createdEvent).toBeDefined();
+    const payload = (createdEvent as any)?.payload;
+    expect(payload?.budgetType).toBe('DAILY');
+    expect(payload?.attachments?.length).toBe(2);
+    expect(payload?.requirements?.workerCount).toBe(2);
+  });
 });

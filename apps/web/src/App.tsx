@@ -23,8 +23,14 @@ import { ProposalResponseDTO } from '@platform/bidding-service';
 import { EscrowResponseDTO, toEscrowResponseDTO } from '@platform/escrow-service';
 import { ReputationSummaryDTO } from '@platform/review-service';
 import { LoginScreen, SessionUser } from './LoginScreen';
+import { LandingPage } from './LandingPage';
 import { AdminPanel } from './AdminPanel';
 import { JobCatalogView } from './JobCatalogView';
+import { JobPublishModal } from './JobPublishModal';
+import { TarifasGarantiaModal } from './TarifasGarantiaModal';
+import { AreasTrabajoModal } from './AreasTrabajoModal';
+import { AreasTrabajoView } from './AreasTrabajoView';
+import { TarifasGarantiaView } from './TarifasGarantiaView';
 import {
   broker,
   loginUserUseCase,
@@ -51,6 +57,7 @@ let manejadorEventosUI: ((ev: DomainEvent) => Promise<void>) | null = null;
 let uiSuscritaAlBroker = false;
 
 type Session = { mode: 'GUEST' } | { mode: 'AUTH'; user: SessionUser } | null;
+const SESSION_STORAGE_KEY = 'trustpay_escrow_session_user';
 
 function AvisoSoloLectura({ texto }: { texto: string }) {
   return (
@@ -62,11 +69,44 @@ function AvisoSoloLectura({ texto }: { texto: string }) {
 }
 
 export function App() {
-  const [activeRole, setActiveRole] = useState<'CATALOG' | 'CLIENT' | 'PROVIDER' | 'AUDITOR'>('CATALOG');
+  const [activeRole, setActiveRole] = useState<'CATALOG' | 'CLIENT' | 'PROVIDER' | 'AUDITOR' | 'AREAS' | 'TARIFAS'>('CATALOG');
   const [events, setEvents] = useState<DomainEvent[]>([]);
-  const [session, setSession] = useState<Session>(null);
+
+  // Sesión persistida en sessionStorage para sobrevivir a recargas y navegación
+  const [session, setSession] = useState<Session>(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (raw) {
+        const user = JSON.parse(raw);
+        if (user && user.id && user.email) {
+          return { mode: 'AUTH', user };
+        }
+      }
+    } catch {}
+    return null;
+  });
+
+  // Control explícito de pantalla: 'LANDING' | 'APP' | 'AUTH'
+  const [currentView, setCurrentView] = useState<'LANDING' | 'APP' | 'AUTH'>(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (raw) return 'APP';
+    } catch {}
+    return 'LANDING';
+  });
+
+  const [showAuthScreen, setShowAuthScreen] = useState(false);
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
+  const [landingSearchCriteria, setLandingSearchCriteria] = useState<{ query: string; location: string; category?: string }>({
+    query: '',
+    location: '',
+  });
+
   // Versión de los datos del sistema: se incrementa con cada evento para que el panel admin recargue
   const [versionEventos, setVersionEventos] = useState(0);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showTarifasModal, setShowTarifasModal] = useState(false);
+  const [showAreasModal, setShowAreasModal] = useState(false);
 
   const authUser = session?.mode === 'AUTH' ? session.user : null;
   const isClientActor = authUser !== null && (authUser.role === 'CLIENT' || authUser.role === 'USER');
@@ -190,19 +230,71 @@ export function App() {
     }
   };
 
-  // Gestión de sesión
+  // Gestión de sesión y navegación
   const handleAuthenticated = (user: SessionUser) => {
     setSession({ mode: 'AUTH', user });
-    setActiveRole(user.role === 'PROVIDER' ? 'PROVIDER' : 'CLIENT');
+    try {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    } catch {}
+    setShowAuthScreen(false);
+    setCurrentView('APP');
+    setActiveRole(user.role === 'PROVIDER' ? 'PROVIDER' : user.role === 'ADMIN' ? 'CATALOG' : 'CLIENT');
   };
 
   const handleGuest = () => {
-    setSession({ mode: 'GUEST' });
-    setActiveRole('CLIENT');
+    if (session?.mode !== 'AUTH') {
+      setSession({ mode: 'GUEST' });
+    }
+    setShowAuthScreen(false);
+    setCurrentView('APP');
+    setActiveRole('CATALOG');
   };
 
   const handleLogout = () => {
     setSession(null);
+    try {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {}
+    setShowAuthScreen(false);
+    setCurrentView('LANDING');
+  };
+
+  const handleLandingSearch = (criteria: { query: string; location: string; category?: string }) => {
+    setLandingSearchCriteria(criteria);
+    // Si el usuario ya está autenticado, no lo degradamos a GUEST
+    if (session?.mode !== 'AUTH') {
+      setSession({ mode: 'GUEST' });
+    }
+    setShowAuthScreen(false);
+    setCurrentView('APP');
+    setActiveRole('CATALOG');
+  };
+
+  const handleLandingPublish = () => {
+    if (session?.mode === 'AUTH' && (session.user.role === 'CLIENT' || session.user.role === 'USER')) {
+      setActiveRole('CLIENT');
+      setCurrentView('APP');
+      setShowPublishModal(true);
+    } else if (session?.mode === 'AUTH' && session.user.role === 'PROVIDER') {
+      setActiveRole('PROVIDER');
+      setCurrentView('APP');
+    } else {
+      setAuthInitialTab('login');
+      setShowAuthScreen(true);
+      setCurrentView('AUTH');
+    }
+  };
+
+  // Vuelve a la portada conservando intacta la sesión autenticada del usuario
+  const handleBackToLanding = () => {
+    setCurrentView('LANDING');
+    setShowAuthScreen(false);
+  };
+
+  const handleRequireAuthFromCatalog = () => {
+    setAuthInitialTab('login');
+    setShowAuthScreen(true);
+    setCurrentView('AUTH');
   };
 
   // Acciones de Usuario
@@ -273,7 +365,8 @@ export function App() {
     await refreshState();
   };
 
-  if (session === null) {
+  // 1. Pantalla de Autenticación
+  if (currentView === 'AUTH' || (session === null && showAuthScreen)) {
     return (
       <LoginScreen
         loginUseCase={loginUserUseCase}
@@ -281,109 +374,218 @@ export function App() {
         loginWithGoogleUseCase={loginWithGoogleUseCase}
         onAuthenticated={handleAuthenticated}
         onGuest={handleGuest}
+        initialTab={authInitialTab}
+        onBackToHome={handleBackToLanding}
       />
     );
   }
 
-  // Un administrador no opera el marketplace: entra directo al panel de administración
-  if (session.mode === 'AUTH' && session.user.role === 'ADMIN') {
+  // 2. Portada Principal (Landing Page)
+  if (currentView === 'LANDING') {
+    return (
+      <LandingPage
+        onSearch={handleLandingSearch}
+        onOpenLogin={() => {
+          setAuthInitialTab('login');
+          setShowAuthScreen(true);
+          setCurrentView('AUTH');
+        }}
+        onOpenRegister={() => {
+          setAuthInitialTab('register');
+          setShowAuthScreen(true);
+          setCurrentView('AUTH');
+        }}
+        onPublish={handleLandingPublish}
+        onEnterGuest={handleGuest}
+        authUser={authUser}
+        onGoToDashboard={() => setCurrentView('APP')}
+        onLogout={handleLogout}
+        onNavigateToAreas={() => {
+          setActiveRole('AREAS');
+          setCurrentView('APP');
+        }}
+        onNavigateToTarifas={() => {
+          setActiveRole('TARIFAS');
+          setCurrentView('APP');
+        }}
+      />
+    );
+  }
+
+  // 3. Un administrador no opera el marketplace: entra directo al panel de administración
+  if (session?.mode === 'AUTH' && session.user.role === 'ADMIN') {
     return <AdminPanel admin={session.user} version={versionEventos} onLogout={handleLogout} />;
   }
 
   return (
     <div className="app-container">
-      {/* Navbar Superior */}
-      <header className="navbar">
-        <div className="brand">
-          <div className="brand-icon">
-            <ShieldCheck size={24} />
-          </div>
-          <div>
-            <span>TrustPay</span>
-            <span style={{ color: 'var(--accent-cyan)', marginLeft: '4px' }}>Escrow</span>
-          </div>
-          <span className="badge-arch" style={{ borderColor: 'rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.1)', color: '#34d399', fontSize: '0.75rem', fontWeight: 600 }}>
-            🛡️ Custodia Segura Colombia
-          </span>
-        </div>
-
-        {/* Selector de Navegación adaptativo según Rol */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div className="role-switcher">
-            <button
-              className={`role-btn ${activeRole === 'CATALOG' ? 'active' : ''}`}
-              onClick={() => setActiveRole('CATALOG')}
+      {/* Navbar Superior Unificado: Idéntico al estilo y proporciones de la Portada Principal */}
+      <header className="ct-navbar">
+        <div className="ct-navbar-container">
+          <div className="ct-brand-group">
+            <div
+              className="ct-logo"
+              onClick={handleBackToLanding}
+              role="button"
+              tabIndex={0}
+              title="Volver a la portada de inicio Computrabajo"
             >
-              <Compass size={16} /> Explorar Empleos
-            </button>
+              <div className="ct-logo-icon">
+                <ShieldCheck size={26} color="#0284c7" />
+              </div>
+              <div className="ct-logo-text">
+                <span className="ct-brand-primary">TrustPay</span>
+                <span className="ct-brand-accent">Escrow</span>
+              </div>
+            </div>
 
-            {/* Cliente o Usuario normal: acceso a sus proyectos contratados */}
-            {session.mode === 'AUTH' && (session.user.role === 'CLIENT' || session.user.role === 'USER') && (
+            <nav className="ct-nav-links">
               <button
-                className={`role-btn ${activeRole === 'CLIENT' ? 'active' : ''}`}
-                onClick={() => setActiveRole('CLIENT')}
+                className="ct-link-btn"
+                onClick={handleBackToLanding}
+                title="Volver a la portada principal"
               >
-                <Briefcase size={16} /> Mis Contrataciones
+                Inicio
               </button>
-            )}
 
-            {/* Prestador exclusivo */}
-            {session.mode === 'AUTH' && session.user.role === 'PROVIDER' && (
               <button
-                className={`role-btn ${activeRole === 'PROVIDER' ? 'active' : ''}`}
-                onClick={() => setActiveRole('PROVIDER')}
+                className={`ct-link-btn ${activeRole === 'CATALOG' ? 'active' : ''}`}
+                onClick={() => setActiveRole('CATALOG')}
+                title="Muro de empleos y servicios"
               >
-                <UserCheck size={16} /> Mis Postulaciones
+                Explorar Servicios
               </button>
-            )}
 
-            {/* Usuario dual normal: alternar a modo prestador solo si lo desea */}
-            {session.mode === 'AUTH' && session.user.role === 'USER' && (
               <button
-                className={`role-btn ${activeRole === 'PROVIDER' ? 'active' : ''}`}
-                style={{
-                  borderLeft: '1px solid rgba(255,255,255,0.1)',
-                  opacity: activeRole === 'PROVIDER' ? 1 : 0.85,
+                className={`ct-link-btn ${activeRole === 'AREAS' ? 'active' : ''}`}
+                onClick={() => setActiveRole('AREAS')}
+                title="Catálogo de áreas de trabajo y oficios"
+              >
+                Áreas de Trabajo
+              </button>
+
+              <button
+                className="ct-link-btn"
+                onClick={() => {
+                  handleBackToLanding();
+                  setTimeout(() => {
+                    const elem = document.getElementById('seccion-como-funciona');
+                    if (elem) elem.scrollIntoView({ behavior: 'smooth' });
+                  }, 120);
                 }}
-                onClick={() => setActiveRole(activeRole === 'PROVIDER' ? 'CLIENT' : 'PROVIDER')}
-                title="Alternar entre contratar y ofertar como prestador"
+                title="Cómo funciona el pago en custodia Escrow"
               >
-                <UserCheck size={16} /> {activeRole === 'PROVIDER' ? 'Volver a Contratar' : 'Modo Prestador'}
+                ¿Cómo Funciona Escrow?
               </button>
-            )}
+
+              <button
+                className={`ct-link-btn ${activeRole === 'TARIFAS' ? 'active' : ''}`}
+                onClick={() => setActiveRole('TARIFAS')}
+                title="Tarifas transparentes (+3% / -10%) y garantías"
+              >
+                Tarifas y Garantía
+              </button>
+
+              {/* Accesos de gestión para usuario autenticado */}
+              {authUser && (authUser.role === 'CLIENT' || authUser.role === 'USER') && (
+                <button
+                  className={`ct-link-btn ${activeRole === 'CLIENT' ? 'active' : ''}`}
+                  onClick={() => setActiveRole('CLIENT')}
+                >
+                  Mis Contrataciones
+                </button>
+              )}
+
+              {authUser?.role === 'PROVIDER' && (
+                <button
+                  className={`ct-link-btn ${activeRole === 'PROVIDER' ? 'active' : ''}`}
+                  onClick={() => setActiveRole('PROVIDER')}
+                >
+                  Mis Postulaciones
+                </button>
+              )}
+
+              {authUser?.role === 'USER' && (
+                <button
+                  className={`ct-link-btn ${activeRole === 'PROVIDER' ? 'active' : ''}`}
+                  onClick={() => setActiveRole(activeRole === 'PROVIDER' ? 'CLIENT' : 'PROVIDER')}
+                  title="Alternar entre contratar y ofertar como prestador"
+                >
+                  {activeRole === 'PROVIDER' ? 'Modo Contratante' : 'Modo Prestador'}
+                </button>
+              )}
+            </nav>
           </div>
 
-          <div className="session-info">
-            <span className={`session-pill ${session.mode === 'GUEST' ? 'guest' : ''}`}>
-              {session.mode === 'GUEST' ? (
-                <>
-                  <Eye size={13} /> Invitado
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={13} /> {session.user.name} ·{' '}
-                  {session.user.role === 'ADMIN'
-                    ? 'Administrador'
-                    : session.user.role === 'USER'
-                    ? 'Usuario'
-                    : session.user.role === 'CLIENT'
-                    ? 'Cliente'
-                    : 'Prestador'}
-                </>
-              )}
-            </span>
-            <button
-              className="btn btn-secondary"
-              style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
-              onClick={handleLogout}
-            >
-              <LogOut size={14} /> Salir
-            </button>
+          <div className="ct-auth-group">
+            {authUser ? (
+              <>
+                <div className="ct-user-pill-header" title={`Sesión activa: ${authUser.email}`}>
+                  <ShieldCheck size={14} color="#0284c7" />
+                  <span className="ct-user-name-text">{authUser.name}</span>
+                  <span className="ct-user-role-badge">
+                    {authUser.role === 'ADMIN'
+                      ? 'Admin'
+                      : authUser.role === 'USER'
+                      ? 'Usuario'
+                      : authUser.role === 'CLIENT'
+                      ? 'Cliente'
+                      : 'Prestador'}
+                  </span>
+                </div>
+
+                <button
+                  className="ct-btn-publish"
+                  onClick={() => setShowPublishModal(true)}
+                  title="Publicar nuevo requerimiento con custodia Escrow"
+                >
+                  Publicar Requerimiento
+                </button>
+
+                <button
+                  type="button"
+                  className="ct-btn-logout-mini"
+                  onClick={handleLogout}
+                  title="Cerrar sesión"
+                >
+                  <LogOut size={15} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="ct-btn-cv"
+                  onClick={() => {
+                    setAuthInitialTab('register');
+                    setShowAuthScreen(true);
+                    setCurrentView('AUTH');
+                  }}
+                >
+                  Ofrecer Servicios
+                </button>
+                <button
+                  className="ct-btn-login"
+                  onClick={() => {
+                    setAuthInitialTab('login');
+                    setShowAuthScreen(true);
+                    setCurrentView('AUTH');
+                  }}
+                >
+                  Ingresar
+                </button>
+                <button
+                  className="ct-btn-publish"
+                  onClick={() => setShowPublishModal(true)}
+                >
+                  Publicar Requerimiento
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Contenido Principal: Catálogo o Workspace de la Saga */}
+      {/* Contenido Principal: Catálogo, Áreas de Trabajo, Tarifas & Garantía o Workspace de la Saga */}
       {activeRole === 'CATALOG' ? (
         <JobCatalogView
           queryFeedUseCase={queryJobFeedUseCase}
@@ -391,6 +593,30 @@ export function App() {
           createJobUseCase={createJobUseCase}
           authUser={authUser}
           onSelectTrustPayJob={() => setActiveRole('PROVIDER')}
+          initialSearch={landingSearchCriteria.query}
+          initialLocation={landingSearchCriteria.location}
+          initialCategory={landingSearchCriteria.category}
+          onBackToHome={handleBackToLanding}
+          onRequireAuth={handleRequireAuthFromCatalog}
+        />
+      ) : activeRole === 'AREAS' ? (
+        <AreasTrabajoView
+          onSelectCategory={(cat) => {
+            setLandingSearchCriteria({ query: '', location: '', category: cat });
+            setActiveRole('CATALOG');
+          }}
+          onPublishCategory={(cat) => {
+            setJobCategory(cat);
+            setShowPublishModal(true);
+          }}
+          onGoToCatalog={() => setActiveRole('CATALOG')}
+          onBackToHome={handleBackToLanding}
+        />
+      ) : activeRole === 'TARIFAS' ? (
+        <TarifasGarantiaView
+          onPublishClick={() => setShowPublishModal(true)}
+          onExploreClick={() => setActiveRole('CATALOG')}
+          onBackToHome={handleBackToLanding}
         />
       ) : (
         <main className="workspace-grid">
@@ -466,16 +692,16 @@ export function App() {
                     borderRadius: '999px',
                     background:
                       escrow.status === 'FUNDS_HELD'
-                        ? 'rgba(16, 185, 129, 0.2)'
+                        ? 'var(--accent-emerald-light)'
                         : escrow.status === 'RELEASED'
-                        ? 'rgba(99, 102, 241, 0.2)'
-                        : 'rgba(245, 158, 11, 0.2)',
+                        ? 'var(--sky-100)'
+                        : 'var(--accent-amber-light)',
                     color:
                       escrow.status === 'FUNDS_HELD'
-                        ? '#34d399'
+                        ? '#065f46'
                         : escrow.status === 'RELEASED'
-                        ? '#a5b4fc'
-                        : '#fbbf24',
+                        ? 'var(--sky-700)'
+                        : '#92400e',
                   }}
                 >
                   ESTADO: {escrow.status}
@@ -515,6 +741,29 @@ export function App() {
                 </span>
               </div>
 
+              {isClientActor && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      padding: '0.8rem',
+                      fontWeight: 700,
+                      background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                      boxShadow: '0 4px 14px rgba(2, 132, 199, 0.25)',
+                    }}
+                    onClick={() => setShowPublishModal(true)}
+                  >
+                    <Briefcase size={18} /> Publicar Nuevo Trabajo / Mano de Obra (Asistente Completo)
+                  </button>
+                </div>
+              )}
+
               {!currentJob && !isClientActor && (
                 <AvisoSoloLectura texto="Vista de solo lectura: inicia sesión para publicar requerimientos con pago protegido." />
               )}
@@ -522,7 +771,7 @@ export function App() {
               {!currentJob && isClientActor && (
                 <form onSubmit={handleCreateJob}>
                   <div className="form-group">
-                    <label className="form-label">Título del Trabajo / Requerimiento</label>
+                    <label className="form-label">Título del Trabajo / Requerimiento (Rápido)</label>
                     <input
                       className="form-control"
                       value={jobTitle}
@@ -560,8 +809,8 @@ export function App() {
                       required
                     />
                   </div>
-                  <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                    <Briefcase size={16} /> Publicar Requerimiento con Custodia Escrow
+                  <button type="submit" className="btn btn-secondary" style={{ width: '100%' }}>
+                    <Briefcase size={16} /> Publicación Rápida
                   </button>
                 </form>
               )}
@@ -569,17 +818,35 @@ export function App() {
               {currentJob && (
                 <div>
                   <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{currentJob.title}</h3>
-                      <span className="badge-arch">{currentJob.status}</span>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        {currentJob.budgetType && (
+                          <span className="budget-type-chip">{currentJob.budgetType}</span>
+                        )}
+                        <span className="badge-arch">{currentJob.status}</span>
+                      </div>
                     </div>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.4rem' }}>
                       {currentJob.description}
                     </p>
-                    <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.8rem', fontSize: '0.85rem' }}>
-                      <span><strong>Presupuesto:</strong> ${currentJob.budgetAmount} USD</span>
+                    <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.8rem', fontSize: '0.85rem', flexWrap: 'wrap' }}>
+                      <span><strong>Presupuesto:</strong> ${currentJob.budgetAmount} {currentJob.currency || 'USD'}</span>
                       <span><strong>Categoría:</strong> {currentJob.category}</span>
+                      {currentJob.location && <span><strong>Ubicación:</strong> {currentJob.location}</span>}
+                      {currentJob.requirements?.workerCount && (
+                        <span><strong>Personal:</strong> {currentJob.requirements.workerCount} personas</span>
+                      )}
                     </div>
+                    {currentJob.attachments && currentJob.attachments.length > 0 && (
+                      <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {currentJob.attachments.map((att, i) => (
+                          <span key={i} className="req-mini-pill attachments-pill">
+                            {att.type.startsWith('image/') ? '📷' : '📄'} {att.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Propuestas recibidas */}
@@ -809,11 +1076,9 @@ export function App() {
 
               {/* Cuando el trabajo está asignado pero sin fondos en custodia */}
               {currentJob && currentJob.status === 'ASSIGNED_PENDING_ESCROW' && (
-                <div style={{ background: 'rgba(245, 158, 11, 0.1)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                  <h4 style={{ color: '#fbbf24', fontWeight: 700 }}>
-                    ⏳ Oferta Aceptada - Esperando Depósito de Custodia
-                  </h4>
-                  <p style={{ fontSize: '0.85rem', color: '#fde68a', marginTop: '0.4rem' }}>
+                <div className="status-alert warning">
+                  <h4>⏳ Oferta Aceptada — Esperando Depósito de Custodia</h4>
+                  <p>
                     Tu oferta fue seleccionada. <strong>No comiences a trabajar</strong> hasta que el cliente deposite los fondos en Escrow para garantizar tu pago al 100%.
                   </p>
                 </div>
@@ -822,11 +1087,9 @@ export function App() {
               {/* Cuando los fondos están asegurados y el trabajo está IN_PROGRESS */}
               {currentJob && currentJob.status === 'IN_PROGRESS' && (
                 <div>
-                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.3)', marginBottom: '1.5rem' }}>
-                    <h4 style={{ color: '#34d399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <ShieldCheck size={20} /> ¡Fondos Asegurados en Custodia!
-                    </h4>
-                    <p style={{ fontSize: '0.85rem', color: '#a7f3d0', marginTop: '0.4rem' }}>
+                  <div className="status-alert success" style={{ marginBottom: '1.5rem' }}>
+                    <h4><ShieldCheck size={18} /> ¡Fondos Asegurados en Custodia!</h4>
+                    <p>
                       El cliente ya depositó ${escrow?.totalClientPaid} USD en la bóveda de Escrow. Tienes garantizado el cobro neto de <strong>${escrow?.netProviderPayout} USD</strong> al entregar satisfactoriamente.
                     </p>
                   </div>
@@ -857,23 +1120,17 @@ export function App() {
 
               {/* Trabajo entregado y en revisión */}
               {currentJob && currentJob.status === 'UNDER_REVIEW' && (
-                <div style={{ background: 'rgba(56, 189, 248, 0.1)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                  <h4 style={{ color: '#38bdf8', fontWeight: 700 }}>
-                    🚀 Trabajo Entregado - En Revisión por el Cliente
-                  </h4>
-                  <p style={{ fontSize: '0.85rem', color: '#bae6fd', marginTop: '0.4rem' }}>
-                    El cliente tiene un plazo de revisión para validar los entregables y liberar el pago.
-                  </p>
+                <div className="status-alert info">
+                  <h4>🚀 Trabajo Entregado — En Revisión por el Cliente</h4>
+                  <p>El cliente tiene un plazo de revisión para validar los entregables y liberar el pago.</p>
                 </div>
               )}
 
               {/* Trabajo completado y fondos liquidados */}
               {currentJob && currentJob.status === 'COMPLETED' && escrow && (
-                <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                  <h4 style={{ color: '#34d399', fontWeight: 700 }}>
-                    🎉 ¡Pago Liquidado en tu Cuenta!
-                  </h4>
-                  <p style={{ fontSize: '0.85rem', color: '#a7f3d0', marginTop: '0.4rem' }}>
+                <div className="status-alert success">
+                  <h4>🎉 ¡Pago Liquidado en tu Cuenta!</h4>
+                  <p>
                     Se han transferido <strong>${escrow.netProviderPayout.toFixed(2)} USD</strong> a tu cuenta de Stripe Connect vinculada ({escrow.payoutTransactionId}).
                   </p>
                 </div>
@@ -893,22 +1150,14 @@ export function App() {
 
               {escrow ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
-                    <span>ID de Contrato de Custodia:</span>
-                    <strong style={{ fontFamily: 'monospace' }}>{escrow.id}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
-                    <span>Transacción de Depósito Cliente:</span>
-                    <strong style={{ fontFamily: 'monospace' }}>{escrow.paymentTransactionId || 'Pendiente'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
-                    <span>Transacción de Liquidación Prestador:</span>
-                    <strong style={{ fontFamily: 'monospace' }}>{escrow.payoutTransactionId || 'Pendiente'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
-                    <span>Comisión Retenida para la Plataforma:</span>
-                    <strong style={{ color: '#34d399' }}>${escrow.platformProfit.toFixed(2)} USD</strong>
-                  </div>
+                  <table className="fin-table">
+                    <tbody>
+                      <tr><td>ID de Contrato de Custodia:</td><td>{escrow.id}</td></tr>
+                      <tr><td>Transacción de Depósito Cliente:</td><td>{escrow.paymentTransactionId || 'Pendiente'}</td></tr>
+                      <tr><td>Transacción de Liquidación Prestador:</td><td>{escrow.payoutTransactionId || 'Pendiente'}</td></tr>
+                      <tr><td>Comisión Retenida para la Plataforma:</td><td style={{ color: 'var(--accent-emerald)' }}>${escrow.platformProfit.toFixed(2)} USD</td></tr>
+                    </tbody>
+                  </table>
                 </div>
               ) : (
                 <p style={{ color: 'var(--text-dim)' }}>No hay contratos de custodia activos en este momento.</p>
@@ -916,9 +1165,46 @@ export function App() {
             </div>
           )}
         </section>
-
       </main>
       )}
+
+      {/* Modal Asistente Profesional de Publicación */}
+      <JobPublishModal
+        isOpen={showPublishModal}
+        onClose={() => setShowPublishModal(false)}
+        createJobUseCase={createJobUseCase}
+        authUser={authUser}
+        onJobPublished={refreshState}
+      />
+
+      {/* Modal de Tarifas, Comisiones & Garantía Escrow */}
+      <TarifasGarantiaModal
+        isOpen={showTarifasModal}
+        onClose={() => setShowTarifasModal(false)}
+        onPublishClick={() => {
+          setShowTarifasModal(false);
+          setShowPublishModal(true);
+        }}
+        onExploreClick={() => {
+          setShowTarifasModal(false);
+          setActiveRole('CATALOG');
+        }}
+      />
+
+      {/* Modal de Áreas de Trabajo y Oficios Polivalentes */}
+      <AreasTrabajoModal
+        isOpen={showAreasModal}
+        onClose={() => setShowAreasModal(false)}
+        onSelectArea={(cat) => {
+          setShowAreasModal(false);
+          setLandingSearchCriteria({ query: '', location: '', category: cat });
+          setActiveRole('CATALOG');
+        }}
+        onPublishArea={() => {
+          setShowAreasModal(false);
+          setShowPublishModal(true);
+        }}
+      />
     </div>
   );
 }

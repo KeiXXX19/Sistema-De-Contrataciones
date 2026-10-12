@@ -175,7 +175,9 @@ export const inicializarSemillas = (): Promise<SemillasDemo> => {
       });
       await verifyUserUseCase.execute(usuarioNormal.id);
 
-      // Cargar catálogo inicial de vacantes en Colombia (Computrabajo, elempleo, Magneto, TrustPay)
+      // Catálogo inicial vacío a petición del usuario hasta definir la estructura de las ofertas
+      // (Los trabajos que se publiquen mediante createJobUseCase sí se proyectarán aquí automáticamente)
+      /*
       for (const vacante of VACANTES_COLOMBIA_DEMO) {
         try {
           await publishToFeedUseCase.execute(vacante);
@@ -183,6 +185,7 @@ export const inicializarSemillas = (): Promise<SemillasDemo> => {
           // Idempotente
         }
       }
+      */
 
       return { cliente, prestador, admin, usuarioNormal };
     })();

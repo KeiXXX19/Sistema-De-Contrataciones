@@ -158,4 +158,30 @@ describe('Job Feed Service - Filtros, Proyecciones y CQRS', () => {
     const computrabajo = await queryUseCase.execute({ source: 'COMPUTRABAJO' });
     expect(computrabajo.length).toBe(1);
   });
+
+  it('debe proyectar correctamente campos de tipo de presupuesto, adjuntos y requisitos', async () => {
+    await publishUseCase.execute({
+      jobId: 'job-pro-1',
+      title: 'Mantenimiento Preventivo de Bombas Hidráulicas',
+      description: 'Revisión y cambio de sellos mecánicos en planta industrial.',
+      category: 'Plomería e Hidrosanitarios',
+      modalidad: 'PRESENCIAL',
+      clientId: 'client-ind',
+      clientName: 'Industrias del Norte',
+      budgetMin: 1200000,
+      budgetMax: 1200000,
+      currency: 'COP',
+      budgetType: 'FIXED',
+      estimatedDuration: '2 días',
+      address: 'Parque Industrial Bodega 12',
+      attachments: [{ name: 'bomba.jpg', type: 'image/jpeg', size: 2048, url: 'data:image/jpeg;base64,...' }],
+      requirements: { workerCount: 1, toolsRequired: ['Extractor de rodamientos'] },
+    });
+
+    const item = await repo.findByJobId('job-pro-1');
+    expect(item).not.toBeNull();
+    expect(item?.budgetType).toBe('FIXED');
+    expect(item?.attachments.length).toBe(1);
+    expect(item?.requirements?.workerCount).toBe(1);
+  });
 });

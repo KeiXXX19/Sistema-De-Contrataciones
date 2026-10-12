@@ -16,6 +16,8 @@ interface LoginScreenProps {
   loginWithGoogleUseCase?: LoginWithGoogleUseCase;
   onAuthenticated: (user: SessionUser) => void;
   onGuest: () => void;
+  initialTab?: 'login' | 'register';
+  onBackToHome?: () => void;
 }
 
 const DEMO_PASSWORD = 'demo1234';
@@ -66,8 +68,10 @@ export function LoginScreen({
   loginWithGoogleUseCase,
   onAuthenticated,
   onGuest,
+  initialTab = 'login',
+  onBackToHome,
 }: LoginScreenProps) {
-  const [tab, setTab] = useState<'login' | 'register'>('login');
+  const [tab, setTab] = useState<'login' | 'register'>(initialTab);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
@@ -214,6 +218,27 @@ export function LoginScreen({
   return (
     <div className="auth-wrapper">
       <div className="auth-card glass-card">
+        {onBackToHome && (
+          <button
+            type="button"
+            onClick={onBackToHome}
+            style={{
+              alignSelf: 'flex-start',
+              background: 'none',
+              border: 'none',
+              color: 'var(--sky-600)',
+              fontSize: '0.84rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              marginBottom: '0.5rem',
+            }}
+          >
+            ← Volver a la página de inicio
+          </button>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
           <div className="brand" style={{ fontSize: '1.5rem' }}>
             <div className="brand-icon">
@@ -221,7 +246,7 @@ export function LoginScreen({
             </div>
             <div>
               <span>TrustPay</span>
-              <span style={{ color: 'var(--accent-cyan)', marginLeft: '4px' }}>Escrow</span>
+              <span style={{ color: 'var(--sky-500)', marginLeft: '4px' }}>Escrow</span>
             </div>
           </div>
           <span className="badge-arch">Hexagonal + EDA</span>

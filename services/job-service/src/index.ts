@@ -26,6 +26,28 @@ export type JobStatus =
   | 'IN_DISPUTE'
   | 'PAYMENT_FAILED';
 
+export type BudgetType = 'FIXED' | 'HOURLY' | 'DAILY' | 'NEGOTIABLE';
+export type JobModalidad = 'REMOTO' | 'PRESENCIAL' | 'HIBRIDO';
+
+export interface JobAttachment {
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+}
+
+export interface JobRequirements {
+  workerCount?: number;
+  experienceLevel?: string;
+  toolsRequired?: string[];
+  materialsIncludedBy?: 'CLIENT' | 'PROVIDER' | 'NOT_APPLICABLE';
+  certificationsRequired?: string[];
+  scopeType?: 'LABOR_ONLY' | 'ALL_INCLUSIVE';
+  proposalsDeadline?: string;
+  startDate?: string;
+  deliveryDuration?: string;
+}
+
 export interface JobProps {
   title: string;
   description: string;
@@ -39,6 +61,15 @@ export interface JobProps {
   disputeReason?: string;
   createdAt: Date;
   updatedAt: Date;
+  budgetType?: BudgetType;
+  currency?: string;
+  estimatedDuration?: string;
+  modalidad?: JobModalidad;
+  location?: string;
+  address?: string;
+  attachments?: JobAttachment[];
+  requirements?: JobRequirements;
+  categoryDetails?: Record<string, any>;
 }
 
 export class JobCreatedEvent implements DomainEvent {
@@ -54,6 +85,16 @@ export class JobCreatedEvent implements DomainEvent {
       clientId: string;
       budget: number;
       category: string;
+      description?: string;
+      budgetType?: BudgetType;
+      currency?: string;
+      estimatedDuration?: string;
+      modalidad?: JobModalidad;
+      location?: string;
+      address?: string;
+      attachments?: JobAttachment[];
+      requirements?: JobRequirements;
+      categoryDetails?: Record<string, any>;
     }
   ) {}
 }
@@ -180,6 +221,15 @@ export class Job extends AggregateRoot<JobProps> {
       clientId: string;
       budgetAmount: number;
       asDraft?: boolean;
+      budgetType?: BudgetType;
+      currency?: string;
+      estimatedDuration?: string;
+      modalidad?: JobModalidad;
+      location?: string;
+      address?: string;
+      attachments?: JobAttachment[];
+      requirements?: JobRequirements;
+      categoryDetails?: Record<string, any>;
     },
     id?: UniqueEntityID
   ): Job {
@@ -203,6 +253,15 @@ export class Job extends AggregateRoot<JobProps> {
         status: initialStatus,
         createdAt: new Date(),
         updatedAt: new Date(),
+        budgetType: props.budgetType ?? 'FIXED',
+        currency: props.currency ?? 'COP',
+        estimatedDuration: props.estimatedDuration,
+        modalidad: props.modalidad ?? 'REMOTO',
+        location: props.location,
+        address: props.address,
+        attachments: props.attachments ?? [],
+        requirements: props.requirements,
+        categoryDetails: props.categoryDetails,
       },
       id
     );
@@ -215,6 +274,16 @@ export class Job extends AggregateRoot<JobProps> {
           clientId: job.clientId,
           budget: job.budget.toDecimal,
           category: job.category,
+          description: job.description,
+          budgetType: job.props.budgetType,
+          currency: job.props.currency,
+          estimatedDuration: job.props.estimatedDuration,
+          modalidad: job.props.modalidad,
+          location: job.props.location,
+          address: job.props.address,
+          attachments: job.props.attachments,
+          requirements: job.props.requirements,
+          categoryDetails: job.props.categoryDetails,
         })
       );
     }
@@ -260,6 +329,42 @@ export class Job extends AggregateRoot<JobProps> {
 
   get createdAt(): Date {
     return this.props.createdAt;
+  }
+
+  get budgetType(): BudgetType | undefined {
+    return this.props.budgetType;
+  }
+
+  get currency(): string | undefined {
+    return this.props.currency;
+  }
+
+  get estimatedDuration(): string | undefined {
+    return this.props.estimatedDuration;
+  }
+
+  get modalidad(): JobModalidad | undefined {
+    return this.props.modalidad;
+  }
+
+  get location(): string | undefined {
+    return this.props.location;
+  }
+
+  get address(): string | undefined {
+    return this.props.address;
+  }
+
+  get attachments(): JobAttachment[] {
+    return this.props.attachments ?? [];
+  }
+
+  get requirements(): JobRequirements | undefined {
+    return this.props.requirements;
+  }
+
+  get categoryDetails(): Record<string, any> | undefined {
+    return this.props.categoryDetails;
   }
 
   // --- MÁQUINA DE ESTADOS / INVARIANTES DE NEGOCIO ---
@@ -441,6 +546,16 @@ export interface CreateJobDTO {
   category: string;
   clientId: string;
   budgetAmount: number;
+  budgetType?: BudgetType;
+  currency?: string;
+  estimatedDuration?: string;
+  modalidad?: JobModalidad;
+  location?: string;
+  address?: string;
+  attachments?: JobAttachment[];
+  requirements?: JobRequirements;
+  categoryDetails?: Record<string, any>;
+  asDraft?: boolean;
 }
 
 export interface JobResponseDTO {
@@ -456,6 +571,14 @@ export interface JobResponseDTO {
   deliverableUrl?: string;
   disputeReason?: string;
   createdAt: Date;
+  budgetType?: BudgetType;
+  estimatedDuration?: string;
+  modalidad?: JobModalidad;
+  location?: string;
+  address?: string;
+  attachments?: JobAttachment[];
+  requirements?: JobRequirements;
+  categoryDetails?: Record<string, any>;
 }
 
 export function toJobResponseDTO(job: Job): JobResponseDTO {
@@ -466,12 +589,20 @@ export function toJobResponseDTO(job: Job): JobResponseDTO {
     category: job.category,
     clientId: job.clientId,
     budgetAmount: job.budget.toDecimal,
-    currency: job.budget.currency,
+    currency: job.currency ?? job.budget.currency,
     status: job.status,
     assignedProviderId: job.assignedProviderId,
     deliverableUrl: job.deliverableUrl,
     disputeReason: job.disputeReason,
     createdAt: job.createdAt,
+    budgetType: job.budgetType,
+    estimatedDuration: job.estimatedDuration,
+    modalidad: job.modalidad,
+    location: job.location,
+    address: job.address,
+    attachments: job.attachments,
+    requirements: job.requirements,
+    categoryDetails: job.categoryDetails,
   };
 }
 
